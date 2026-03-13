@@ -1,65 +1,55 @@
 const { google } = require('googleapis');
-const db = require('./db');
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
-function createOAuthClient() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+/**
+ * Return an authenticated Gmail client that impersonates the given inbox email
+ * using a Google service account with Domain-Wide Delegation (DWD).
+ *
+ * Authentication source (in priority order):
+ *  1. GOOGLE_CREDENTIALS_JSON env var — full service account key JSON as a string.
+ *     This is the production pattern used by all Fable Food Cloud Run services.
+ *     The service account must have DWD enabled in Google Workspace Admin with
+ *     scope: https://www.googleapis.com/auth/gmail.readonly
+ *  2. Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS file path,
+ *     or `gcloud auth application-default login`) — for local dev without a key file.
+ *     Note: ADC via the Cloud Run metadata server does NOT support DWD impersonation,
+ *     so GOOGLE_CREDENTIALS_JSON is required in production.
+ *
+ * No OAuth flow. No refresh tokens. No browser redirects.
+ * Credentials are managed entirely by GCP.
+ *
+ * @param {string} inboxEmail  The Gmail address to impersonate, e.g. "orders@fablefood.co"
+ * @returns {JWT|OAuth2Client}  An authenticated googleapis auth client
+ */
+async function getGmailClient(inboxEmail) {
+  if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    const key = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+    return new google.auth.JWT({
+      email:   key.client_email,
+      key:     key.private_key,
+      scopes:  SCOPES,
+      subject: inboxEmail,  // DWD: impersonate the target mailbox
+    });
+  }
+
+  // Local dev fallback: Application Default Credentials
+  // Requires: gcloud auth application-default login
+  // DWD impersonation is not available via ADC metadata server — set
+  // GOOGLE_CREDENTIALS_JSON with a service account key for full parity with production.
+  const auth = new google.auth.GoogleAuth({ scopes: SCOPES });
+  return auth.getClient();
+}
+
+/**
+ * Returns true if Gmail credentials are configured (GOOGLE_CREDENTIALS_JSON set,
+ * or ADC is available via GOOGLE_APPLICATION_CREDENTIALS).
+ */
+function credentialsConfigured() {
+  return !!(
+    process.env.GOOGLE_CREDENTIALS_JSON ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS
   );
 }
 
-/**
- * Build the Google OAuth consent URL for a given inbox.
- * state encodes the inbox ID so the callback knows which inbox to update.
- */
-function getAuthUrl(inboxId = 'orders-au') {
-  const client = createOAuthClient();
-  return client.generateAuthUrl({
-    access_type: 'offline',
-    prompt: 'consent',
-    scope: SCOPES,
-    state: inboxId,
-  });
-}
-
-/**
- * Exchange an authorisation code for tokens, persist the refresh token to
- * the inboxes table, and return an authenticated OAuth2 client.
- */
-async function handleCallback(code, inboxId = 'orders-au') {
-  const client = createOAuthClient();
-  const { tokens } = await client.getToken(code);
-  client.setCredentials(tokens);
-
-  if (tokens.refresh_token) {
-    db.updateInboxToken(inboxId, tokens.refresh_token);
-  }
-
-  return { client, tokens };
-}
-
-/**
- * Return an authenticated OAuth2 client for the given inbox using its stored
- * refresh token (or the GMAIL_REFRESH_TOKEN env var as a fallback for the
- * Phase 1 primary inbox).
- *
- * Throws if no refresh token is available.
- */
-function getAuthenticatedClient(inbox) {
-  const refreshToken = inbox.refresh_token || process.env.GMAIL_REFRESH_TOKEN;
-  if (!refreshToken) {
-    throw new Error(
-      `No refresh token found for inbox ${inbox.id}. ` +
-      `Visit /orders/auth/setup?inbox=${inbox.id} to authenticate.`
-    );
-  }
-
-  const client = createOAuthClient();
-  client.setCredentials({ refresh_token: refreshToken });
-  return client;
-}
-
-module.exports = { getAuthUrl, handleCallback, getAuthenticatedClient };
+module.exports = { getGmailClient, credentialsConfigured };

@@ -17,16 +17,16 @@ function getDb() {
 
 function initialise() {
   db.exec(`
-    -- One row per connected Gmail account.
+    -- One row per configured Gmail inbox.
     -- Phase 1: orders@fablefood.co only.
     -- Future: ordersuk@fablefood.co, ordersus@fablefood.co added without schema changes.
+    -- Auth is via Service Account + Domain-Wide Delegation — no tokens stored here.
     CREATE TABLE IF NOT EXISTS inboxes (
-      id           TEXT PRIMARY KEY,
-      email        TEXT UNIQUE NOT NULL,
-      display_name TEXT,
-      refresh_token TEXT,
+      id             TEXT PRIMARY KEY,
+      email          TEXT UNIQUE NOT NULL,
+      display_name   TEXT,
       last_synced_at TEXT,
-      enabled      INTEGER NOT NULL DEFAULT 1
+      enabled        INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS emails (
@@ -67,17 +67,17 @@ function initialise() {
     CREATE INDEX IF NOT EXISTS idx_attachments_msg ON attachments (message_id);
   `);
 
-  // Seed Phase 1 inbox row. Uses env var refresh token if available.
+  // Seed Phase 1 inbox row on first run.
   const existing = db.prepare('SELECT id FROM inboxes WHERE id = ?').get('orders-au');
   if (!existing) {
     db.prepare(`
-      INSERT INTO inboxes (id, email, display_name, refresh_token, enabled)
-      VALUES (?, ?, ?, ?, 1)
-    `).run('orders-au', 'orders@fablefood.co', 'Australia', process.env.GMAIL_REFRESH_TOKEN || null);
+      INSERT INTO inboxes (id, email, display_name, enabled)
+      VALUES (?, ?, ?, 1)
+    `).run('orders-au', 'orders@fablefood.co', 'Australia');
   }
 }
 
-// ─── Inbox queries ───────────────────────────────────────────────────────────
+// ─── Inbox queries ────────────────────────────────────────────────────────────
 
 function getInboxes() {
   return getDb().prepare('SELECT id, email, display_name, last_synced_at, enabled FROM inboxes').all();
@@ -85,10 +85,6 @@ function getInboxes() {
 
 function getInbox(id) {
   return getDb().prepare('SELECT * FROM inboxes WHERE id = ?').get(id);
-}
-
-function updateInboxToken(id, refreshToken) {
-  return getDb().prepare('UPDATE inboxes SET refresh_token = ? WHERE id = ?').run(refreshToken, id);
 }
 
 function updateInboxSyncTime(id) {
@@ -192,7 +188,6 @@ module.exports = {
   getDb,
   getInboxes,
   getInbox,
-  updateInboxToken,
   updateInboxSyncTime,
   upsertEmail,
   getEmails,
