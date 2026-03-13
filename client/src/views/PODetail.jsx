@@ -1,33 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { C, T, F } from '../design.js';
 
 const BASE_API = import.meta.env.VITE_BASE_PATH || '/orders';
 
 const s = {
-  page:      { padding: '1.5rem', maxWidth: '960px' },
-  back:      { color: '#2d6a4f', cursor: 'pointer', background: 'none', border: 'none', fontSize: '0.9rem', marginBottom: '1rem', display: 'block', padding: 0 },
-  title:     { fontSize: '1.3rem', fontWeight: 700, marginBottom: '0.25rem' },
-  subtitle:  { color: '#666', fontSize: '0.9rem', marginBottom: '1.25rem' },
-  flagBox:   { background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '8px', padding: '0.9rem 1.1rem', marginBottom: '1.25rem' },
-  flagTitle: { fontWeight: 700, color: '#856404', marginBottom: '0.4rem', fontSize: '0.9rem' },
-  flagItem:  { color: '#856404', fontSize: '0.88rem', paddingLeft: '1rem', marginBottom: '0.2rem' },
-  card:      { background: '#fff', borderRadius: '8px', padding: '1.25rem 1.5rem', marginBottom: '1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' },
-  cardTitle: { fontWeight: 700, fontSize: '1rem', marginBottom: '0.9rem', color: '#1a1a2e', borderBottom: '1px solid #eee', paddingBottom: '0.5rem' },
-  grid:      { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' },
-  field:     { display: 'flex', flexDirection: 'column', gap: '0.1rem' },
-  fieldLabel:{ fontSize: '0.75rem', color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' },
-  fieldValue:{ fontSize: '0.92rem', color: '#1a1a1a' },
-  nullValue: { fontSize: '0.9rem', color: '#bbb', fontStyle: 'italic' },
-  table:     { width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' },
-  th:        { padding: '0.5rem 0.8rem', background: '#f0f0f0', textAlign: 'left', fontWeight: 600, fontSize: '0.8rem', color: '#444', borderBottom: '1px solid #ddd' },
-  td:        { padding: '0.5rem 0.8rem', borderBottom: '1px solid #f0f0f0' },
-  badge:     { display: 'inline-block', padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600 },
-  summary:   { cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', color: '#2d6a4f', userSelect: 'none', marginBottom: '0.25rem' },
-  pre:       { background: '#f8f8f8', borderRadius: '6px', padding: '0.75rem 1rem', fontSize: '0.8rem', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#333' },
-  sourceChip:{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', padding: '0.2rem 0.6rem', borderRadius: '20px', background: '#f0ecff', color: '#4c2f8a', marginLeft: '0.5rem' },
-  attachOk:  { color: '#2d6a4f', fontSize: '0.8rem' },
-  attachErr: { color: '#c0392b', fontSize: '0.8rem' },
-  error:     { background: '#fff0f0', border: '1px solid #f5c6cb', borderRadius: '6px', padding: '0.75rem', color: '#721c24' },
+  page:       { padding: '1.5rem', maxWidth: '960px' },
+  back:       { color: C.olive, cursor: 'pointer', background: 'none', border: 'none', fontSize: T.base, marginBottom: '1rem', display: 'block', padding: 0, fontFamily: T.fontFamily },
+  title:      { fontSize: T.lg, fontWeight: T.bold, color: C.forest, marginBottom: '0.25rem' },
+  subtitle:   { color: C.sage, fontSize: T.base, marginBottom: '1.25rem' },
+  flagBox:    { background: C.flagBg, border: `1px solid ${C.flagBorder}`, borderRadius: '8px', padding: '0.9rem 1.1rem', marginBottom: '1.25rem' },
+  flagTitle:  { fontWeight: T.bold, color: C.flagText, marginBottom: '0.4rem', fontSize: T.base },
+  flagItem:   { color: C.flagText, fontSize: T.sm, paddingLeft: '1rem', marginBottom: '0.2rem' },
+  card:       { ...F.card },
+  cardTitle:  { ...F.cardTitle },
+  grid:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' },
+  field:      { display: 'flex', flexDirection: 'column', gap: '0.1rem' },
+  fieldLabel: { fontSize: T.xs, color: C.sageMid, fontWeight: T.bold, textTransform: 'uppercase', letterSpacing: T.upper },
+  fieldValue: { fontSize: T.base, color: C.forest },
+  nullValue:  { fontSize: T.base, color: C.sageLight, fontStyle: 'italic' },
+  table:      { width: '100%', borderCollapse: 'collapse' },
+  th:         { ...F.tableHeader, padding: '0.5rem 0.8rem' },
+  td:         { ...F.tableCell,   padding: '0.5rem 0.8rem' },
+  badge:      { ...F.badge },
+  summary:    { cursor: 'pointer', fontWeight: T.bold, fontSize: T.base, color: C.olive, userSelect: 'none', marginBottom: '0.25rem' },
+  pre:        { background: C.sagePale, borderRadius: '6px', padding: '0.75rem 1rem', fontSize: T.xs, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: C.forest, fontFamily: 'monospace' },
+  sourceChip: { display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: T.xs, padding: '0.2rem 0.6rem', borderRadius: '20px', background: C.limeLight, color: C.olive, marginLeft: '0.5rem' },
+  attachOk:   { color: C.olive,     fontSize: T.sm },
+  attachErr:  { color: C.errorText, fontSize: T.sm },
+  error:      { ...F.errorBox },
 };
 
 function Field({ label, value, currency }) {

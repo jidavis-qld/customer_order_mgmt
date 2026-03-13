@@ -1,32 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { C, T, F } from '../design.js';
 
 const BASE_API = import.meta.env.VITE_BASE_PATH || '/orders';
 
 const s = {
-  page:      { padding: '1.5rem' },
-  toolbar:   { display: 'flex', gap: '0.75rem', alignItems: 'flex-end', marginBottom: '1rem', flexWrap: 'wrap' },
-  input:     { padding: '0.45rem 0.7rem', border: '1px solid #ccc', borderRadius: '6px', fontSize: '0.9rem', background: '#fff' },
-  label:     { display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.8rem', color: '#555' },
-  btn:       { padding: '0.5rem 1.1rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 },
-  btnPrimary:{ background: '#2d6a4f', color: '#fff' },
-  btnGhost:  { background: '#fff', color: '#333', border: '1px solid #ccc' },
-  table:     { width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' },
-  th:        { padding: '0.7rem 1rem', background: '#f0f0f0', textAlign: 'left', fontSize: '0.82rem', fontWeight: 600, color: '#444', borderBottom: '1px solid #ddd', whiteSpace: 'nowrap' },
-  td:        { padding: '0.7rem 1rem', fontSize: '0.88rem', borderBottom: '1px solid #f0f0f0', verticalAlign: 'middle' },
-  rowFlagged:{ background: '#fffbec' },
-  rowHover:  { cursor: 'pointer' },
-  badge:     { display: 'inline-block', padding: '0.2rem 0.55rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' },
-  flagAlert: { background: '#fff3cd', color: '#856404', border: '1px solid #ffc107' },
-  sourceEmail: { background: '#e8f4fd', color: '#0c5c8a' },
-  sourcePdf:   { background: '#edf7ee', color: '#1a5c2a' },
-  sourceBoth:  { background: '#f0ecff', color: '#4c2f8a' },
-  statusOk:    { background: '#edf7ee', color: '#1a5c2a' },
-  statusPend:  { background: '#f0f0f0', color: '#555' },
-  empty:     { textAlign: 'center', padding: '3rem', color: '#888' },
-  syncing:   { color: '#2d6a4f', fontWeight: 600 },
-  error:     { background: '#fff0f0', border: '1px solid #f5c6cb', borderRadius: '6px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#721c24', fontSize: '0.9rem' },
-  checkLabel:{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', cursor: 'pointer', paddingTop: '1.2rem' },
+  page:       { padding: '1.5rem' },
+  toolbar:    { display: 'flex', gap: '0.75rem', alignItems: 'flex-end', marginBottom: '1rem', flexWrap: 'wrap' },
+  input:      { ...F.input },
+  label:      { display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: T.xs, color: C.sage },
+  btn:        { ...F.btnPrimary },
+  btnGhost:   { ...F.btnSecondary },
+  table:      { width: '100%', borderCollapse: 'collapse', background: C.white, borderRadius: '8px', overflow: 'hidden', border: `1px solid ${C.sageLight}` },
+  th:         { ...F.tableHeader },
+  td:         { ...F.tableCell },
+  rowFlagged: { background: C.flagBg },
+  rowHover:   { cursor: 'pointer' },
+  badge:      { ...F.badge },
+  flagAlert:  { background: C.flagBg,    color: C.flagText,    border: `1px solid ${C.flagBorder}` },
+  sourceEmail:{ background: C.sagePale,  color: C.olive },
+  sourcePdf:  { background: C.limeLight, color: C.olive },
+  sourceBoth: { background: C.limeLight, color: C.olive },
+  statusOk:   { background: C.limeLight, color: C.olive },
+  statusPend: { background: C.sagePale,  color: C.sage },
+  empty:      { textAlign: 'center', padding: '3rem', color: C.sageMid, fontSize: T.base },
+  error:      { ...F.errorBox },
+  checkLabel: { display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: T.base, cursor: 'pointer', color: C.forest, paddingTop: '1.2rem' },
 };
 
 function sourceBadge(src) {
@@ -113,10 +112,10 @@ export default function Inbox() {
 
   return (
     <div style={s.page}>
-      <h2 style={{ marginBottom: '1rem', fontWeight: 700, fontSize: '1.3rem' }}>PO Inbox — orders@fablefood.co</h2>
+      <h2 style={{ marginBottom: '1rem', fontWeight: T.bold, fontSize: T.lg, color: C.forest }}>PO Inbox — orders@fablefood.co</h2>
 
       {error && <div style={s.error}>{error}</div>}
-      {syncMsg && <div style={{ ...s.error, background: '#edf7ee', color: '#1a5c2a', borderColor: '#86efac' }}>{syncMsg}</div>}
+      {syncMsg && <div style={{ ...F.successBox }}>{syncMsg}</div>}
 
       {/* Toolbar */}
       <div style={s.toolbar}>
@@ -146,7 +145,7 @@ export default function Inbox() {
         </label>
         <button style={{ ...s.btn, ...s.btnGhost }} onClick={fetchEmails} disabled={loading}>Refresh</button>
         <button style={{ ...s.btn, ...s.btnPrimary }} onClick={handleSync} disabled={syncing}>
-          {syncing ? <span style={s.syncing}>Syncing…</span> : 'Refresh Inbox'}
+          {syncing ? 'Syncing…' : 'Refresh Inbox'}
         </button>
       </div>
 

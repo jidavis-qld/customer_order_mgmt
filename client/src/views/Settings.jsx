@@ -1,21 +1,22 @@
 import React, { useState, useEffect } from 'react';
+import { C, T, F } from '../design.js';
 
 const BASE_API = import.meta.env.VITE_BASE_PATH || '/orders';
 
 const s = {
   page:      { padding: '1.5rem', maxWidth: '700px' },
-  title:     { fontSize: '1.3rem', fontWeight: 700, marginBottom: '1.25rem' },
-  card:      { background: '#fff', borderRadius: '8px', padding: '1.25rem 1.5rem', marginBottom: '1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' },
-  cardTitle: { fontWeight: 700, fontSize: '1rem', marginBottom: '0.9rem', color: '#1a1a2e', borderBottom: '1px solid #eee', paddingBottom: '0.5rem' },
+  title:     { fontSize: T.lg, fontWeight: T.bold, color: C.forest, marginBottom: '1.25rem' },
+  card:      { ...F.card },
+  cardTitle: { ...F.cardTitle },
   row:       { display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.6rem', flexWrap: 'wrap' },
-  label:     { fontSize: '0.82rem', color: '#666', width: '170px', flexShrink: 0, paddingTop: '0.1rem' },
-  value:     { fontSize: '0.9rem', color: '#1a1a1a', fontWeight: 500 },
-  ok:        { color: '#2d6a4f', fontWeight: 700, fontSize: '0.85rem' },
-  notok:     { color: '#c0392b', fontWeight: 700, fontSize: '0.85rem' },
-  mono:      { fontFamily: 'monospace', fontSize: '0.82rem', background: '#f0f0f0', padding: '0.15rem 0.4rem', borderRadius: '4px' },
-  note:      { fontSize: '0.82rem', color: '#666', marginTop: '0.75rem', lineHeight: 1.6 },
-  divider:   { borderBottom: '1px solid #f0f0f0', marginBottom: '0.75rem', paddingBottom: '0.75rem' },
-  error:     { background: '#fff0f0', border: '1px solid #f5c6cb', borderRadius: '6px', padding: '0.75rem', color: '#721c24' },
+  label:     { fontSize: T.sm, color: C.sage, width: '170px', flexShrink: 0, paddingTop: '0.1rem' },
+  value:     { fontSize: T.base, color: C.forest, fontWeight: T.bold },
+  ok:        { color: C.olive,     fontWeight: T.bold, fontSize: T.sm },
+  notok:     { color: C.errorText, fontWeight: T.bold, fontSize: T.sm },
+  mono:      { fontFamily: 'monospace', fontSize: T.xs, background: C.sagePale, padding: '0.15rem 0.4rem', borderRadius: '4px', color: C.forest },
+  note:      { fontSize: T.sm, color: C.sage, marginTop: '0.75rem', lineHeight: 1.6 },
+  divider:   { borderBottom: `1px solid ${C.sageLight}`, marginBottom: '0.75rem', paddingBottom: '0.75rem' },
+  error:     { ...F.errorBox },
 };
 
 function Row({ label, children }) {

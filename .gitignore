@@ -2,10 +2,12 @@
 .env
 .env.local
 
-# SQLite database
+# SQLite database (including WAL mode journal files)
 *.sqlite
 *.sqlite3
 *.db
+*.sqlite-shm
+*.sqlite-wal
 
 # Node modules
 node_modules/
