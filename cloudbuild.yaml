@@ -1,0 +1,40 @@
+steps:
+  # Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - -t
+      - gcr.io/in-demand-87605/orders-inbox
+      - --build-arg
+      - VITE_BASE_PATH=/orders
+      - .
+
+  # Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - gcr.io/in-demand-87605/orders-inbox
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - orders-inbox
+      - --image=gcr.io/in-demand-87605/orders-inbox
+      - --region=australia-southeast1
+      - --project=in-demand-87605
+      - --port=8080
+      - --ingress=internal-and-cloud-load-balancing
+      - --no-allow-unauthenticated
+      - --timeout=60s
+      - --memory=512Mi
+      - --min-instances=0
+      - --max-instances=5
+
+images:
+  - gcr.io/in-demand-87605/orders-inbox
+
+options:
+  logging: CLOUD_LOGGING_ONLY
