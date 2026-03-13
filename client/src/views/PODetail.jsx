@@ -157,6 +157,10 @@ export default function PODetail() {
   const [feedbackError, setFeedbackError]   = useState(null);
   const [willReExtract, setWillReExtract]   = useState(false);
 
+  // Re-extract state
+  const [reExtracting, setReExtracting] = useState(false);
+  const [reExtractError, setReExtractError] = useState(null);
+
   useEffect(() => {
     (async () => {
       try {
@@ -173,6 +177,29 @@ export default function PODetail() {
       }
     })();
   }, [id]);
+
+  async function handleReExtract() {
+    setReExtracting(true);
+    setReExtractError(null);
+    try {
+      const res = await fetch(`${BASE_API}/api/emails/${encodeURIComponent(id)}/reextract`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+      // Reload the full email so all fields update
+      const res2 = await fetch(`${BASE_API}/api/emails/${encodeURIComponent(id)}`);
+      const updated = await res2.json();
+      setEmail(updated);
+      setLocalHumanIsPo(updated.human_is_po ?? null);
+      setFeedbackAt(updated.human_feedback_at ?? null);
+      setWillReExtract(false);
+    } catch (err) {
+      setReExtractError(err.message);
+    } finally {
+      setReExtracting(false);
+    }
+  }
 
   async function handleFeedback(isPo) {
     setFeedbackSaving(true);
@@ -265,7 +292,8 @@ export default function PODetail() {
       <div style={s.card}>
         <div style={s.cardTitle}>Delivery</div>
         <div style={s.grid}>
-          <Field label="Delivery Address"  value={ext.delivery_address} />
+          <Field label="Delivery Address"     value={ext.delivery_address} />
+          <Field label="Time Slot"            value={ext.time_slot} />
           <Field label="Special Instructions" value={ext.special_instructions} />
         </div>
       </div>
@@ -337,7 +365,20 @@ export default function PODetail() {
 
       {/* Collapsible raw data */}
       <div style={s.card}>
-        <div style={s.cardTitle}>Raw Data</div>
+        <div style={{ ...s.cardTitle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Raw Data</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {reExtractError && <span style={{ color: C.errorText, fontSize: T.xs }}>{reExtractError}</span>}
+            <button
+              style={{ ...F.btnSecondary, fontSize: T.xs, padding: '0.2rem 0.7rem' }}
+              disabled={reExtracting}
+              onClick={handleReExtract}
+              title="Re-run Claude on this email with the latest prompt"
+            >
+              {reExtracting ? 'Re-extracting…' : '↺ Re-extract'}
+            </button>
+          </span>
+        </div>
 
         <details style={{ marginBottom: '0.75rem' }}>
           <summary style={s.summary}>Email body</summary>

@@ -20,25 +20,50 @@ If is_purchase_order is false, set all order fields to null, set data_source to 
 
 If is_purchase_order is true, extract all fields below (use null if not found — never guess or hallucinate values):
 
-- customer_name: string
+CRITICAL FIELD MAPPING RULES:
+1. CUSTOMER vs SUPPLIER: Purchase orders are sent BY a customer TO a supplier.
+   - The "To:" field on a PO identifies the SUPPLIER receiving the order — that is Fable Food itself.
+     Do NOT use the "To:" field as customer_name or customer_email.
+   - The CUSTOMER is the entity SENDING the PO. Look at the sender name/email header, the company
+     name/logo at the top of the PDF, or the "From:" / "Ordered by:" / "Authorised by:" fields.
+   - Example: if a PO says "To: Fable Food Pty Ltd" and is sent by PFD Food Services,
+     then customer_name = "PFD Food Services" (NOT "Fable Food").
+
+2. DELIVERY ADDRESS: Use the "Deliver to:", "Ship to:", or "Delivery address:" field as
+   delivery_address. This is where Fable should deliver the goods, and is often a warehouse or
+   distribution centre (different from the customer's head office). Include the full address
+   exactly as shown including any site/MSA codes or branch names.
+
+3. PRODUCT SKUs: Fable Food's own product codes always begin with "FB" (e.g. FB058-AU, FB001-AU).
+   When a line item contains a code starting with "FB", use it as sku_or_code. The customer's
+   internal product code (if different) may also appear — prefer the FB-prefixed code if present.
+
+4. LINE ITEM PRICING: Extract pricing per the unit type shown on the PO:
+   - unit: the actual unit of measure (e.g. "carton", "kg", "each", "case", "box")
+   - unit_price: price per that unit (price per carton, price per kg, etc.)
+   - line_total: quantity × unit_price. Cross-check arithmetic; flag if it doesn't match.
+
+Fields to extract:
+- customer_name: string (the company SENDING the PO, not Fable Food)
 - customer_email: string
 - customer_phone: string
-- po_number: string
+- po_number: string (the PO/order number assigned by the customer, e.g. "PV138482")
 - order_date: string (ISO format if determinable)
 - requested_delivery_date: string (ISO format if determinable)
 - requested_delivery_day: string (e.g. "Tuesday", "every Monday and Thursday")
-- delivery_address: string
+- time_slot: string or null (delivery time window if specified, e.g. "6:00am – 8:00am", "AM only", "before 12pm")
+- delivery_address: string (the "Deliver to:" / "Ship to:" address, not the customer's head office)
 - line_items: array of {
     product_name: string,
-    sku_or_code: string or null,
+    sku_or_code: string or null (prefer FB-prefixed codes for Fable products),
     quantity: number,
-    unit: string (e.g. "kg", "case", "each"),
+    unit: string (e.g. "carton", "kg", "each", "case"),
     unit_price: number or null,
     line_total: number or null
   }
 - order_total: number or null
 - currency: string (default "AUD" for Australian customers)
-- special_instructions: string (delivery notes, access requirements, temperature handling, etc.)
+- special_instructions: string (delivery notes, access codes, temperature requirements, etc.)
 - payment_terms: string or null
 - data_source: one of "email_only", "pdf_only", "email_and_pdf"
 - flags: array of strings — flag anything that needs human attention, including:
@@ -47,6 +72,7 @@ If is_purchase_order is true, extract all fields below (use null if not found �
     - ambiguous quantities or units
     - PDF could not be parsed
     - conflicting information between email and PDF
+    - line total arithmetic doesn't match quantity × unit_price
     - unusual delivery requirements
 
 Return only valid JSON with no commentary outside it.`;

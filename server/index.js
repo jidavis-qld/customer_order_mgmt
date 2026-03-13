@@ -240,6 +240,67 @@ app.patch(`${BASE}/api/emails/:id/feedback`, (req, res) => {
   }
 });
 
+// ─── API: Re-extract (force Claude re-run) ────────────────────────────────────
+
+/**
+ * POST /orders/api/emails/:id/reextract
+ * Force Claude to re-process this email from scratch, ignoring the cached result.
+ * Useful after a prompt update, or when the human knows the extraction was wrong.
+ * Preserves any existing human feedback (human_is_po is not cleared).
+ */
+app.post(`${BASE}/api/emails/:id/reextract`, async (req, res) => {
+  try {
+    const email = db.getEmail(req.params.id);
+    if (!email) return res.status(404).json({ error: 'Email not found.' });
+
+    if (!credentialsConfigured()) {
+      return res.status(503).json({ error: 'Gmail credentials not configured.' });
+    }
+
+    // Re-fetch PDF attachments from Gmail so we have the full text
+    const inbox = db.getInbox(email.inbox_id);
+    const authClient = await getGmailClient(inbox.email);
+    const message = await gmail.getMessage(authClient, req.params.id, inbox.email);
+    const pdfParts = gmail.extractPdfParts(message.payload);
+    const pdfResults = [];
+
+    for (const part of pdfParts) {
+      const att = db.getAttachment(`${req.params.id}_${part.attachmentId}`);
+      if (att?.pdf_text) {
+        // Use cached PDF text if available
+        pdfResults.push({ filename: part.filename, text: att.pdf_text, error: !!att.parse_error });
+      } else {
+        try {
+          const buffer = await gmail.getAttachment(authClient, req.params.id, part.attachmentId, inbox.email);
+          const result = await extractPdfText(buffer, part.filename);
+          pdfResults.push({ filename: part.filename, text: result.text, error: result.error });
+        } catch (_) {
+          pdfResults.push({ filename: part.filename, text: '', error: true });
+        }
+      }
+    }
+
+    const parsed = await extractPO({
+      messageId:      req.params.id,
+      emailBody:      email.body_text,
+      pdfResults,
+      forceReExtract: true,
+    });
+
+    // Re-fetch to include the updated extraction in the response
+    const updated = db.getEmail(req.params.id);
+    let extracted = null;
+    if (updated.extracted_json) {
+      try { extracted = JSON.parse(updated.extracted_json); } catch (_) {}
+    }
+
+    res.json({ ok: true, extracted });
+  } catch (err) {
+    console.error('[POST /emails/:id/reextract]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── API: Attachment (PDF) viewer ─────────────────────────────────────────────
 
 /**
