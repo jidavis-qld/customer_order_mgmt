@@ -32,6 +32,7 @@ steps:
       - --memory=512Mi
       - --min-instances=0
       - --max-instances=5
+      - --service-account=orders-inbox-gmail@in-demand-87605.iam.gserviceaccount.com
 
 images:
   - gcr.io/in-demand-87605/orders-inbox
