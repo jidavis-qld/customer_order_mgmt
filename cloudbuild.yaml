@@ -30,10 +30,13 @@ steps:
       - --no-allow-unauthenticated
       - --timeout=60s
       - --memory=512Mi
-      - --min-instances=0
+      - --min-instances=1
       - --max-instances=5
       - --service-account=orders-inbox-gmail@in-demand-87605.iam.gserviceaccount.com
       - --set-secrets=GOOGLE_CREDENTIALS_JSON=orders-inbox-google-credentials:latest,ANTHROPIC_API_KEY=orders-inbox-anthropic-key:latest
+      - --update-env-vars=DB_PATH=/mnt/db/orders.sqlite
+      - --add-volume=name=orders-db,type=cloud-storage,bucket=fablefood-orders-db
+      - --add-volume-mount=volume=orders-db,mount-path=/mnt/db
 
 images:
   - gcr.io/in-demand-87605/orders-inbox

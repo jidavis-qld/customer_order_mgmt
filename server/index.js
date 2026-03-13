@@ -197,6 +197,47 @@ app.get(`${BASE}/api/emails/:id`, (req, res) => {
   }
 });
 
+// ─── API: Attachment (PDF) viewer ─────────────────────────────────────────────
+
+/**
+ * GET /orders/api/attachments/:id
+ * Fetches the raw PDF for an attachment from Gmail and streams it back.
+ * The attachment id in the DB is `${messageId}_${gmailAttachmentId}`.
+ */
+app.get(`${BASE}/api/attachments/:id`, async (req, res) => {
+  try {
+    const att = db.getAttachment(req.params.id);
+    if (!att) return res.status(404).json({ error: 'Attachment not found.' });
+
+    const email = db.getEmail(att.message_id);
+    if (!email) return res.status(404).json({ error: 'Parent email not found.' });
+
+    const inbox = db.getInbox(email.inbox_id);
+    if (!inbox) return res.status(404).json({ error: 'Inbox not found.' });
+
+    if (!credentialsConfigured()) {
+      return res.status(503).json({ error: 'Gmail credentials not configured.' });
+    }
+
+    const authClient = await getGmailClient(inbox.email);
+
+    // The stored id is `${messageId}_${gmailAttachmentId}` — strip the prefix
+    const gmailAttachmentId = att.id.substring(att.message_id.length + 1);
+
+    const buffer = await gmail.getAttachment(authClient, att.message_id, gmailAttachmentId, inbox.email);
+
+    const filename = encodeURIComponent(att.filename || 'attachment.pdf');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+
+  } catch (err) {
+    console.error('[GET /attachments/:id]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Serve React SPA ──────────────────────────────────────────────────────────
 
 const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');

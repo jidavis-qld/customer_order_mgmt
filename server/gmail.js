@@ -7,13 +7,11 @@
 
 const { google } = require('googleapis');
 
-const PO_SUBJECT_KEYWORDS = [
-  'purchase order', 'p.o.', 'p.o ', ' po ', 'po#', 'po number',
-  'order #', 'order number', 'new order',
-];
-
 /**
- * Fetch emails likely to be Purchase Orders from the given Gmail account.
+ * Fetch all emails from the given Gmail account (dedicated orders inbox).
+ * No subject filter — orders-app@fablefood.co receives only order-related emails
+ * (direct POs and forwarded emails with arbitrary subjects). Claude classifies
+ * each email as a PO or not.
  *
  * @param {OAuth2Client} authClient  Authenticated OAuth2 client
  * @param {object} options
@@ -28,23 +26,22 @@ async function listPOEmails(authClient, options = {}) {
   const gmail = google.gmail({ version: 'v1', auth: authClient });
   const { email = 'me', maxResults = 50, pageToken, dateFrom, dateTo } = options;
 
-  // Build a Gmail search query
-  const subjectQuery = PO_SUBJECT_KEYWORDS.map(k => `subject:"${k}"`).join(' OR ');
-  let q = `(${subjectQuery})`;
+  // Fetch ALL emails — this is a dedicated orders inbox so no subject filter needed.
+  // Forwarded emails (Fwd: ...) would not match keyword filters, so we omit them entirely.
+  let q = '';
 
   if (dateFrom) {
-    // Gmail uses after:YYYY/MM/DD
     const d = dateFrom.replace(/-/g, '/');
-    q += ` after:${d}`;
+    q += `after:${d}`;
   }
   if (dateTo) {
     const d = dateTo.replace(/-/g, '/');
-    q += ` before:${d}`;
+    q += `${q ? ' ' : ''}before:${d}`;
   }
 
   const res = await gmail.users.messages.list({
     userId: email,
-    q,
+    q: q || undefined,
     maxResults,
     pageToken: pageToken || undefined,
   });

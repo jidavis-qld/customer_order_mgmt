@@ -8,7 +8,10 @@ let db;
 function getDb() {
   if (!db) {
     db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
+    // Use DELETE journal mode (not WAL) — WAL requires shared-memory files
+    // which are incompatible with Cloud Run's GCS FUSE volume mounts.
+    db.pragma('journal_mode = DELETE');
+    db.pragma('busy_timeout = 5000');
     db.pragma('foreign_keys = ON');
     initialise();
   }
@@ -18,7 +21,7 @@ function getDb() {
 function initialise() {
   db.exec(`
     -- One row per configured Gmail inbox.
-    -- Phase 1: orders@fablefood.co only.
+    -- Phase 1: orders-app@fablefood.co only (real user, member of orders@fablefood.co group).
     -- Future: ordersuk@fablefood.co, ordersus@fablefood.co added without schema changes.
     -- Auth is via Service Account + Domain-Wide Delegation — no tokens stored here.
     CREATE TABLE IF NOT EXISTS inboxes (
@@ -73,7 +76,7 @@ function initialise() {
     db.prepare(`
       INSERT INTO inboxes (id, email, display_name, enabled)
       VALUES (?, ?, ?, 1)
-    `).run('orders-au', 'orders@fablefood.co', 'Australia');
+    `).run('orders-au', 'orders-app@fablefood.co', 'Australia');
   }
 }
 
@@ -155,6 +158,10 @@ function emailExists(messageId) {
 
 // ─── Attachment queries ───────────────────────────────────────────────────────
 
+function getAttachment(id) {
+  return getDb().prepare('SELECT * FROM attachments WHERE id = ?').get(id);
+}
+
 function upsertAttachment(attachment) {
   return getDb().prepare(`
     INSERT INTO attachments (id, message_id, filename, size_bytes, pdf_text, parse_error)
@@ -193,6 +200,7 @@ module.exports = {
   getEmails,
   getEmail,
   emailExists,
+  getAttachment,
   upsertAttachment,
   hasExtraction,
   upsertExtraction,

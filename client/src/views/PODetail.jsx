@@ -180,12 +180,20 @@ export default function PODetail() {
         <div style={s.card}>
           <div style={s.cardTitle}>Attachments</div>
           {email.attachments.map(att => (
-            <div key={att.id} style={{ marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <span style={{ fontSize: '0.88rem' }}>{att.filename}</span>
-              {att.size_bytes > 0 && <span style={{ color: '#999', fontSize: '0.78rem' }}>({Math.round(att.size_bytes / 1024)} KB)</span>}
+            <div key={att.id} style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.88rem', color: C.forest }}>{att.filename}</span>
+              {att.size_bytes > 0 && <span style={{ color: C.sageMid, fontSize: '0.78rem' }}>({Math.round(att.size_bytes / 1024)} KB)</span>}
               {att.parse_error
                 ? <span style={s.attachErr}>⚠ Parse failed</span>
                 : <span style={s.attachOk}>✓ Text extracted</span>}
+              <a
+                href={`${BASE_API}/api/attachments/${encodeURIComponent(att.id)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ ...F.btnSecondary, textDecoration: 'none', fontSize: T.xs, padding: '0.2rem 0.65rem' }}
+              >
+                View PDF
+              </a>
             </div>
           ))}
         </div>

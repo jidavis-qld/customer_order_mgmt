@@ -7,11 +7,17 @@ const db = require('./db');
 
 const MODEL = 'claude-sonnet-4-6';
 
-const SYSTEM_PROMPT = `You are a purchase order extraction assistant for Fable Food, a food supplier based in Australia. Extract all relevant information from the content below (which may include an email body and/or a PDF attachment) and return it as structured JSON.
+const SYSTEM_PROMPT = `You are a purchase order extraction assistant for Fable Food, a food supplier based in Australia.
 
-You will be given the email body and, where present, the text extracted from a PDF attachment. The PDF is typically the authoritative source for line items and pricing. Use the email body for delivery context, instructions, or any information not captured in the PDF.
+FIRST, determine whether this email is an actual new purchase order from a customer, or something else (e.g. an internal team discussion, a contractor update, a delivery status message, a reply thread about an existing order, or a non-order email that happened to arrive in the orders inbox).
 
-Extract the following fields (use null if not found — never guess or hallucinate values):
+Set "is_purchase_order" accordingly:
+- true  → the email contains a new or amended purchase order from a customer placing product orders
+- false → the email is an internal update, discussion, status message, or anything that is not a customer placing an order
+
+If is_purchase_order is false, set all order fields to null, set data_source to "email_only", and add a brief "not_a_po" flag describing what the email actually is (e.g. "not_a_po: internal team discussion", "not_a_po: delivery status update from Hornbill", "not_a_po: reply thread, not a new order").
+
+If is_purchase_order is true, extract all fields below (use null if not found — never guess or hallucinate values):
 
 - customer_name: string
 - customer_email: string

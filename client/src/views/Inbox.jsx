@@ -15,9 +15,11 @@ const s = {
   th:         { ...F.tableHeader },
   td:         { ...F.tableCell },
   rowFlagged: { background: C.flagBg },
+  rowNotPo:   { background: C.white, opacity: 0.45 },
   rowHover:   { cursor: 'pointer' },
   badge:      { ...F.badge },
   flagAlert:  { background: C.flagBg,    color: C.flagText,    border: `1px solid ${C.flagBorder}` },
+  notPoBadge: { background: '#f3f4f6',   color: '#6b7280',     border: '1px solid #e5e7eb' },
   sourceEmail:{ background: C.sagePale,  color: C.olive },
   sourcePdf:  { background: C.limeLight, color: C.olive },
   sourceBoth: { background: C.limeLight, color: C.olive },
@@ -35,6 +37,7 @@ function sourceBadge(src) {
 }
 
 function statusBadge(row) {
+  if (row.extracted?.is_purchase_order === false) return <span style={{ ...s.badge, ...s.notPoBadge }}>Not a PO</span>;
   if (row.has_flags) return <span style={{ ...s.badge, ...s.flagAlert }}>Flagged</span>;
   if (row.extracted) return <span style={{ ...s.badge, ...s.statusOk }}>Extracted</span>;
   return                   <span style={{ ...s.badge, ...s.statusPend }}>Pending</span>;
@@ -65,6 +68,7 @@ export default function Inbox() {
   const [customer, setCustomer]   = useState('');
   const [flagged, setFlagged]     = useState(false);
   const [unread, setUnread]       = useState(false);
+  const [posOnly, setPosOnly]     = useState(true);
 
   const fetchEmails = useCallback(async () => {
     setLoading(true);
@@ -143,6 +147,10 @@ export default function Inbox() {
           <input type="checkbox" checked={unread} onChange={e => setUnread(e.target.checked)} />
           Unread only
         </label>
+        <label style={s.checkLabel}>
+          <input type="checkbox" checked={posOnly} onChange={e => setPosOnly(e.target.checked)} />
+          POs only
+        </label>
         <button style={{ ...s.btn, ...s.btnGhost }} onClick={fetchEmails} disabled={loading}>Refresh</button>
         <button style={{ ...s.btn, ...s.btnPrimary }} onClick={handleSync} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Refresh Inbox'}
@@ -169,30 +177,33 @@ export default function Inbox() {
             </tr>
           </thead>
           <tbody>
-            {emails.map(row => {
+            {emails
+              .filter(row => !posOnly || row.extracted?.is_purchase_order !== false)
+              .map(row => {
               const ext = row.extracted || {};
               const isUnread = !row.is_read;
+              const isNotPo = ext.is_purchase_order === false;
               return (
                 <tr
                   key={row.message_id}
-                  style={{ ...(row.has_flags ? s.rowFlagged : {}), ...s.rowHover }}
+                  style={{ ...(isNotPo ? s.rowNotPo : row.has_flags ? s.rowFlagged : {}), ...s.rowHover }}
                   onClick={() => navigate(`/detail/${row.message_id}`)}
-                  onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
-                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                  onMouseEnter={e => e.currentTarget.style.opacity = isNotPo ? '0.3' : '0.85'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = isNotPo ? '0.45' : '1'}
                 >
                   <td style={s.td}>{fmt(row.received_at)}</td>
-                  <td style={{ ...s.td, fontWeight: isUnread ? 700 : 400 }}>
+                  <td style={{ ...s.td, fontWeight: isUnread && !isNotPo ? 700 : 400 }}>
                     {ext.customer_name || row.sender_name || row.sender_email || '—'}
                   </td>
-                  <td style={{ ...s.td, fontWeight: isUnread ? 700 : 400, maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...s.td, fontWeight: isUnread && !isNotPo ? 700 : 400, maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {row.subject}
                   </td>
                   <td style={s.td}>{ext.po_number || '—'}</td>
                   <td style={s.td}>{ext.requested_delivery_date ? fmt(ext.requested_delivery_date) : (ext.requested_delivery_day || '—')}</td>
                   <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums' }}>
-                    {fmtCurrency(ext.order_total, ext.currency || 'AUD')}
+                    {isNotPo ? '—' : fmtCurrency(ext.order_total, ext.currency || 'AUD')}
                   </td>
-                  <td style={s.td}>{sourceBadge(row.data_source)}</td>
+                  <td style={s.td}>{isNotPo ? '—' : sourceBadge(row.data_source)}</td>
                   <td style={s.td}>{statusBadge(row)}</td>
                 </tr>
               );
