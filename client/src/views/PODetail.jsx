@@ -8,7 +8,7 @@ const s = {
   page:       { padding: '1.5rem', maxWidth: '960px' },
   back:       { color: C.olive, cursor: 'pointer', background: 'none', border: 'none', fontSize: T.base, marginBottom: '1rem', display: 'block', padding: 0, fontFamily: T.fontFamily },
   title:      { fontSize: T.lg, fontWeight: T.bold, color: C.forest, marginBottom: '0.25rem' },
-  subtitle:   { color: C.sage, fontSize: T.base, marginBottom: '1.25rem' },
+  subtitle:   { color: C.sage, fontSize: T.base, marginBottom: '1rem' },
   flagBox:    { background: C.flagBg, border: `1px solid ${C.flagBorder}`, borderRadius: '8px', padding: '0.9rem 1.1rem', marginBottom: '1.25rem' },
   flagTitle:  { fontWeight: T.bold, color: C.flagText, marginBottom: '0.4rem', fontSize: T.base },
   flagItem:   { color: C.flagText, fontSize: T.sm, paddingLeft: '1rem', marginBottom: '0.2rem' },
@@ -29,6 +29,36 @@ const s = {
   attachOk:   { color: C.olive,     fontSize: T.sm },
   attachErr:  { color: C.errorText, fontSize: T.sm },
   error:      { ...F.errorBox },
+
+  // Feedback bar
+  feedbackBar: {
+    background: C.sagePale,
+    border: `1px solid ${C.sageLight}`,
+    borderRadius: '8px',
+    padding: '0.75rem 1rem',
+    marginBottom: '1.25rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+  },
+  feedbackVerified: {
+    ...F.successBox,
+    marginBottom: '1.25rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+  },
+  feedbackReextract: {
+    background: C.flagBg,
+    border: `1px solid ${C.flagBorder}`,
+    borderRadius: '8px',
+    padding: '0.65rem 1rem',
+    marginBottom: '0.75rem',
+    color: C.flagText,
+    fontSize: T.sm,
+  },
 };
 
 function Field({ label, value, currency }) {
@@ -54,19 +84,88 @@ function sourceLabel(src) {
   return 'Email only';
 }
 
+/**
+ * FeedbackBar — confirm or correct Claude's classification.
+ * Verified examples feed into Claude's prompt for future emails (few-shot learning).
+ */
+function FeedbackBar({ claudeIsPo, humanIsPo, feedbackAt, onFeedback, saving, fbError, willReExtract, onChangeRequest }) {
+  const isVerified = humanIsPo !== null && humanIsPo !== undefined;
+  const effectiveIsPo = isVerified ? !!humanIsPo : claudeIsPo;
+  const classLabel = effectiveIsPo ? 'Purchase Order' : 'Not a Purchase Order';
+
+  if (isVerified) {
+    const dateStr = feedbackAt
+      ? new Date(feedbackAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })
+      : null;
+    return (
+      <>
+        {willReExtract && (
+          <div style={s.feedbackReextract}>
+            ⚠ Marked as PO — click <strong>Refresh Inbox</strong> to re-extract line items with Claude
+          </div>
+        )}
+        <div style={s.feedbackVerified}>
+          <span style={{ fontWeight: T.bold }}>✓ Verified: {classLabel}</span>
+          {dateStr && <span style={{ color: C.sage, fontSize: T.xs }}>{dateStr}</span>}
+          <span style={{ color: C.sage, fontSize: T.xs }}>· Helps Claude learn your inbox</span>
+          <button
+            style={{ background: 'none', border: 'none', color: C.olive, cursor: 'pointer', fontSize: T.sm, padding: 0, fontFamily: T.fontFamily, textDecoration: 'underline' }}
+            onClick={onChangeRequest}
+          >
+            Change
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div style={s.feedbackBar}>
+      <span style={{ fontSize: T.sm, color: C.sage, flexShrink: 0 }}>
+        Claude classified this as: <strong style={{ color: C.forest }}>{classLabel}</strong> — correct?
+      </span>
+      <button
+        style={{ ...F.btnPrimary, padding: '0.3rem 0.85rem', fontSize: T.sm, fontWeight: T.normal, opacity: saving ? 0.6 : 1 }}
+        disabled={saving}
+        onClick={() => onFeedback(claudeIsPo)}
+      >
+        ✓ Yes
+      </button>
+      <button
+        style={{ ...F.btnSecondary, padding: '0.3rem 0.85rem', fontSize: T.sm, opacity: saving ? 0.6 : 1 }}
+        disabled={saving}
+        onClick={() => onFeedback(!claudeIsPo)}
+      >
+        ✗ No — it's {claudeIsPo ? 'NOT a PO' : 'a PO'}
+      </button>
+      {fbError && <span style={{ color: C.errorText, fontSize: T.xs }}>{fbError}</span>}
+    </div>
+  );
+}
+
 export default function PODetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [email, setEmail]   = useState(null);
+  const [email, setEmail]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState(null);
+  const [error, setError]     = useState(null);
+
+  // Feedback state — local copies so the UI updates instantly without a refetch
+  const [localHumanIsPo, setLocalHumanIsPo] = useState(null);
+  const [feedbackAt, setFeedbackAt]         = useState(null);
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [feedbackError, setFeedbackError]   = useState(null);
+  const [willReExtract, setWillReExtract]   = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(`${BASE_API}/api/emails/${encodeURIComponent(id)}`);
         if (!res.ok) throw new Error(`Server error ${res.status}`);
-        setEmail(await res.json());
+        const data = await res.json();
+        setEmail(data);
+        setLocalHumanIsPo(data.human_is_po ?? null);
+        setFeedbackAt(data.human_feedback_at ?? null);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -74,6 +173,27 @@ export default function PODetail() {
       }
     })();
   }, [id]);
+
+  async function handleFeedback(isPo) {
+    setFeedbackSaving(true);
+    setFeedbackError(null);
+    try {
+      const res = await fetch(`${BASE_API}/api/emails/${encodeURIComponent(id)}/feedback`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_purchase_order: isPo }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+      setLocalHumanIsPo(isPo ? 1 : 0);
+      setFeedbackAt(new Date().toISOString());
+      setWillReExtract(data.willReExtract || false);
+    } catch (err) {
+      setFeedbackError(err.message);
+    } finally {
+      setFeedbackSaving(false);
+    }
+  }
 
   if (loading) return <div style={s.page}>Loading…</div>;
   if (error)   return <div style={s.page}><div style={s.error}>{error}</div></div>;
@@ -83,6 +203,8 @@ export default function PODetail() {
   const flags = Array.isArray(ext.flags) ? ext.flags : [];
   const lineItems = Array.isArray(ext.line_items) ? ext.line_items : [];
   const currency = ext.currency || 'AUD';
+  // claudeIsPo: true unless Claude explicitly returned is_purchase_order: false
+  const claudeIsPo = ext.is_purchase_order !== false;
 
   return (
     <div style={s.page}>
@@ -99,6 +221,20 @@ export default function PODetail() {
           {email.received_at ? new Date(email.received_at).toLocaleString('en-AU') : '—'}
         </p>
       </div>
+
+      {/* Feedback / learning bar — only when email has been extracted */}
+      {email.extracted && (
+        <FeedbackBar
+          claudeIsPo={claudeIsPo}
+          humanIsPo={localHumanIsPo}
+          feedbackAt={feedbackAt}
+          onFeedback={handleFeedback}
+          saving={feedbackSaving}
+          fbError={feedbackError}
+          willReExtract={willReExtract}
+          onChangeRequest={() => { setLocalHumanIsPo(null); setWillReExtract(false); }}
+        />
+      )}
 
       {/* Flags */}
       {flags.length > 0 && (

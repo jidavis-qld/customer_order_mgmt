@@ -1,6 +1,7 @@
 // PHASE 1: READ ONLY
 // Calls the Anthropic Claude API to extract structured PO data.
-// Results are cached in SQLite — Claude is never called twice for the same email.
+// Results are cached in SQLite — Claude is never called twice for the same email
+// unless a human correction forces a re-extraction (forceReExtract: true).
 
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./db');
@@ -51,14 +52,116 @@ If is_purchase_order is true, extract all fields below (use null if not found �
 Return only valid JSON with no commentary outside it.`;
 
 /**
- * Build the user message combining email body and PDF text.
+ * Build thread context to inject when the current email is a reply in an
+ * existing Gmail thread. This tells Claude that prior messages in the thread
+ * have already been seen, so this reply is unlikely to be a new PO.
+ *
+ * @param {string} currentMessageId
+ * @param {string} threadId
+ * @returns {string}
+ */
+function buildThreadContext(currentMessageId, threadId) {
+  if (!threadId) return '';
+
+  const threadEmails = db.getThreadEmails(threadId);
+  // Only earlier messages are relevant context
+  const earlier = threadEmails.filter(m => m.message_id !== currentMessageId);
+  if (earlier.length === 0) return '';
+
+  const position = threadEmails.findIndex(m => m.message_id === currentMessageId) + 1;
+  const total = threadEmails.length;
+
+  let ctx = `\n\n--- THREAD CONTEXT ---\n`;
+  ctx += `This is message ${position} of ${total} in an email thread. Earlier messages in this thread:\n`;
+
+  earlier.forEach((m, i) => {
+    let classification = '';
+    if (m.extracted_json) {
+      try {
+        const ext = JSON.parse(m.extracted_json);
+        classification = ext.is_purchase_order === true
+          ? ' [classified: IS a PO]'
+          : ext.is_purchase_order === false
+            ? ' [classified: NOT a PO]'
+            : '';
+      } catch (_) {}
+    }
+    const dateStr = m.received_at ? new Date(m.received_at).toLocaleDateString('en-AU') : '';
+    ctx += `  ${i + 1}. "${m.subject}" — from ${m.sender_name || m.sender_email} on ${dateStr}${classification}\n`;
+  });
+
+  ctx += `\nIMPORTANT: Because this is a reply in an existing thread, it is most likely a follow-up question, confirmation, or update — NOT a new purchase order. Only classify it as is_purchase_order: true if it explicitly contains NEW order line items or explicitly amends/replaces a prior order.\n`;
+  ctx += `--- END THREAD CONTEXT ---`;
+
+  return ctx;
+}
+
+/**
+ * Build few-shot learning context from human-verified examples.
+ * Injected into the user message so Claude calibrates to Fable's specific
+ * email patterns (supplier formats, contractor updates, internal threads, etc.)
+ *
+ * @param {Array}  examples         From db.getFeedbackExamples()
+ * @param {Array}  senderReputation From db.getSenderReputation()
+ * @returns {string}
+ */
+function buildLearningContext(examples, senderReputation) {
+  let ctx = '';
+
+  // Sender reputation (only include confident patterns: >=80% consistent)
+  const knownPO    = senderReputation.filter(s => s.total >= 2 && s.po_count / s.total >= 0.8);
+  const knownNonPO = senderReputation.filter(s => s.total >= 2 && (s.total - s.po_count) / s.total >= 0.8);
+
+  if (knownPO.length > 0 || knownNonPO.length > 0) {
+    ctx += '\n\n--- SENDER REPUTATION (learned from your inbox) ---\n';
+    if (knownPO.length > 0) {
+      ctx += 'These senders reliably send purchase orders:\n';
+      knownPO.forEach(s => {
+        ctx += `  - ${s.sender_email}${s.sender_name ? ` (${s.sender_name})` : ''} — ${s.po_count}/${s.total} verified POs\n`;
+      });
+    }
+    if (knownNonPO.length > 0) {
+      ctx += 'These senders never send purchase orders:\n';
+      knownNonPO.forEach(s => {
+        const nonPo = s.total - s.po_count;
+        ctx += `  - ${s.sender_email}${s.sender_name ? ` (${s.sender_name})` : ''} — ${nonPo}/${s.total} verified non-POs\n`;
+      });
+    }
+    ctx += '---';
+  }
+
+  // Few-shot examples
+  if (examples.length > 0) {
+    ctx += '\n\n--- VERIFIED EXAMPLES FROM YOUR INBOX ---\n';
+    examples.forEach((ex, i) => {
+      const label = ex.is_po ? 'IS a purchase order' : 'NOT a purchase order';
+      const threadNote = ex.is_thread_reply ? ', thread reply' : ', new thread';
+      ctx += `\nExample ${i + 1} (${label}${threadNote}):\n`;
+      ctx += `Sender: ${ex.sender_name ? ex.sender_name + ' ' : ''}<${ex.sender_email}>\n`;
+      ctx += `Subject: ${ex.subject}\n`;
+      ctx += `Body: ${(ex.body_snippet || '').trim()}${ex.body_snippet && ex.body_snippet.length >= 400 ? '...' : ''}\n`;
+    });
+    ctx += '--- END EXAMPLES ---';
+  }
+
+  return ctx;
+}
+
+/**
+ * Build the user message combining email body, thread context, learning context, and PDF text.
  *
  * @param {string} emailBody
  * @param {Array<{ filename: string, text: string, error: boolean }>} pdfResults
+ * @param {string} threadContext      From buildThreadContext()
+ * @param {string} learningContext    From buildLearningContext()
  * @returns {string}
  */
-function buildUserMessage(emailBody, pdfResults = []) {
+function buildUserMessage(emailBody, pdfResults = [], threadContext = '', learningContext = '') {
   let msg = `EMAIL BODY:\n${emailBody || '(no body text)'}`;
+
+  if (threadContext) {
+    msg += threadContext;
+  }
 
   for (const pdf of pdfResults) {
     msg += `\n\n---\nPDF ATTACHMENT: "${pdf.filename}"\n`;
@@ -69,6 +172,10 @@ function buildUserMessage(emailBody, pdfResults = []) {
     }
   }
 
+  if (learningContext) {
+    msg += learningContext;
+  }
+
   msg += `\n\n---\nIf both sources contain order information, reconcile them. The PDF is typically the authoritative source for line items and pricing. The email body may contain delivery instructions or context not in the PDF.`;
 
   return msg;
@@ -76,17 +183,19 @@ function buildUserMessage(emailBody, pdfResults = []) {
 
 /**
  * Call Claude to extract PO data, then cache the result in SQLite.
- * If a cached result already exists for this messageId, return it immediately.
+ * If a cached result already exists for this messageId, return it immediately
+ * unless forceReExtract is true (used after human corrections).
  *
- * @param {object} params
- * @param {string} params.messageId
- * @param {string} params.emailBody
- * @param {Array<{ filename: string, text: string, error: boolean }>} params.pdfResults
+ * @param {object}  params
+ * @param {string}  params.messageId
+ * @param {string}  params.emailBody
+ * @param {Array}   params.pdfResults
+ * @param {boolean} [params.forceReExtract=false]
  * @returns {object}  Parsed JSON from Claude
  */
-async function extractPO({ messageId, emailBody, pdfResults = [] }) {
-  // Cache check — never call Claude twice for the same email
-  if (db.hasExtraction(messageId)) {
+async function extractPO({ messageId, emailBody, pdfResults = [], forceReExtract = false }) {
+  // Cache check — skip if already extracted (unless forced by human correction)
+  if (!forceReExtract && db.hasExtraction(messageId)) {
     const row = db.getEmail(messageId);
     try {
       return JSON.parse(row.extracted_json);
@@ -95,8 +204,28 @@ async function extractPO({ messageId, emailBody, pdfResults = [] }) {
     }
   }
 
-  const client = new Anthropic();
-  const userMessage = buildUserMessage(emailBody, pdfResults);
+  // ── Build context ──────────────────────────────────────────────────────────
+
+  // Thread context: tell Claude where this email sits in its conversation thread
+  const email = db.getEmail(messageId);
+  const threadCtx = buildThreadContext(messageId, email?.thread_id);
+  if (threadCtx) {
+    const pos = threadCtx.match(/message (\d+) of (\d+)/);
+    console.log(`[extract] Thread context: message ${pos ? pos[1] : '?'} of ${pos ? pos[2] : '?'} in thread ${email?.thread_id}`);
+  }
+
+  // Learning context: inject verified examples + sender reputation
+  const examples         = db.getFeedbackExamples(10);
+  const senderReputation = db.getSenderReputation();
+  const learningCtx      = buildLearningContext(examples, senderReputation);
+  if (examples.length > 0) {
+    console.log(`[extract] Learning context: ${examples.filter(e => e.is_po).length} PO examples, ${examples.filter(e => !e.is_po).length} non-PO examples`);
+  }
+
+  // ── Call Claude ────────────────────────────────────────────────────────────
+
+  const client      = new Anthropic();
+  const userMessage = buildUserMessage(emailBody, pdfResults, threadCtx, learningCtx);
 
   const response = await client.messages.create({
     model: MODEL,

@@ -70,6 +70,19 @@ function initialise() {
     CREATE INDEX IF NOT EXISTS idx_attachments_msg ON attachments (message_id);
   `);
 
+  // ── Safe migrations (idempotent via try/catch) ───────────────────────────
+
+  // Thread tracking — groups Gmail conversation threads together so Claude
+  // can understand that a reply email is part of an existing PO thread.
+  try { db.exec('ALTER TABLE emails ADD COLUMN thread_id TEXT NULL'); } catch (_) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails (thread_id)'); } catch (_) {}
+
+  // Human feedback — lets the team confirm or correct Claude's classification.
+  // NULL = no feedback yet; 0 = team says NOT a PO; 1 = team says IS a PO.
+  // These verified examples are injected into future Claude prompts (few-shot learning).
+  try { db.exec('ALTER TABLE extractions ADD COLUMN human_is_po INTEGER NULL'); } catch (_) {}
+  try { db.exec('ALTER TABLE extractions ADD COLUMN human_feedback_at TEXT NULL'); } catch (_) {}
+
   // Seed Phase 1 inbox row on first run.
   const existing = db.prepare('SELECT id FROM inboxes WHERE id = ?').get('orders-au');
   if (!existing) {
@@ -98,11 +111,12 @@ function updateInboxSyncTime(id) {
 
 function upsertEmail(email) {
   return getDb().prepare(`
-    INSERT INTO emails (message_id, inbox_id, subject, sender_name, sender_email, received_at, body_text, is_read, fetched_at)
-    VALUES (@message_id, @inbox_id, @subject, @sender_name, @sender_email, @received_at, @body_text, @is_read, @fetched_at)
+    INSERT INTO emails (message_id, inbox_id, subject, sender_name, sender_email, received_at, body_text, is_read, fetched_at, thread_id)
+    VALUES (@message_id, @inbox_id, @subject, @sender_name, @sender_email, @received_at, @body_text, @is_read, @fetched_at, @thread_id)
     ON CONFLICT (message_id) DO UPDATE SET
       body_text  = excluded.body_text,
-      fetched_at = excluded.fetched_at
+      fetched_at = excluded.fetched_at,
+      thread_id  = COALESCE(excluded.thread_id, emails.thread_id)
   `).run(email);
 }
 
@@ -124,8 +138,8 @@ function getEmails(filters = {}) {
   return getDb().prepare(`
     SELECT
       e.message_id, e.inbox_id, e.subject, e.sender_name, e.sender_email,
-      e.received_at, e.is_read, e.fetched_at,
-      x.extracted_json, x.data_source, x.has_flags,
+      e.received_at, e.is_read, e.fetched_at, e.thread_id,
+      x.extracted_json, x.data_source, x.has_flags, x.human_is_po,
       (SELECT COUNT(*) FROM attachments a WHERE a.message_id = e.message_id) AS attachment_count,
       (SELECT COUNT(*) FROM attachments a WHERE a.message_id = e.message_id AND a.parse_error = 1) AS attachment_errors
     FROM emails e
@@ -137,7 +151,8 @@ function getEmails(filters = {}) {
 
 function getEmail(messageId) {
   const email = getDb().prepare(`
-    SELECT e.*, x.extracted_json, x.extracted_at, x.model, x.data_source, x.has_flags
+    SELECT e.*, x.extracted_json, x.extracted_at, x.model, x.data_source, x.has_flags,
+           x.human_is_po, x.human_feedback_at
     FROM emails e
     LEFT JOIN extractions x ON x.message_id = e.message_id
     WHERE e.message_id = ?
@@ -154,6 +169,24 @@ function getEmail(messageId) {
 
 function emailExists(messageId) {
   return !!getDb().prepare('SELECT 1 FROM emails WHERE message_id = ?').get(messageId);
+}
+
+// ─── Thread queries ───────────────────────────────────────────────────────────
+
+/**
+ * Returns all emails in the same Gmail thread, ordered oldest first.
+ * Used to inject thread context into the Claude extraction prompt.
+ */
+function getThreadEmails(threadId) {
+  if (!threadId) return [];
+  return getDb().prepare(`
+    SELECT e.message_id, e.subject, e.sender_name, e.sender_email, e.received_at,
+           x.extracted_json
+    FROM emails e
+    LEFT JOIN extractions x ON x.message_id = e.message_id
+    WHERE e.thread_id = ?
+    ORDER BY e.received_at ASC
+  `).all(threadId);
 }
 
 // ─── Attachment queries ───────────────────────────────────────────────────────
@@ -191,6 +224,89 @@ function upsertExtraction(extraction) {
   `).run(extraction);
 }
 
+// ─── Feedback / learning queries ──────────────────────────────────────────────
+
+/**
+ * Save a human classification for an email.
+ * isPo: true = IS a purchase order, false = NOT a purchase order.
+ */
+function saveFeedback(messageId, isPo) {
+  return getDb().prepare(`
+    UPDATE extractions
+    SET human_is_po = ?, human_feedback_at = ?
+    WHERE message_id = ?
+  `).run(isPo ? 1 : 0, new Date().toISOString(), messageId);
+}
+
+/**
+ * Delete an extraction so the next sync re-runs Claude on this email.
+ * Used when a human corrects a "not a PO" → "is a PO" override —
+ * the re-extraction will now use better few-shot examples and produce
+ * properly filled line items, PO number, etc.
+ */
+function clearExtraction(messageId) {
+  return getDb().prepare('DELETE FROM extractions WHERE message_id = ?').run(messageId);
+}
+
+/**
+ * Returns up to `limit` human-verified examples for use as few-shot context
+ * in Claude's prompt. Balanced: up to half POs, half non-POs, most recent first.
+ */
+function getFeedbackExamples(limit = 10) {
+  const half = Math.floor(limit / 2);
+  const poExamples = getDb().prepare(`
+    SELECT e.subject, e.sender_name, e.sender_email,
+           SUBSTR(e.body_text, 1, 400) AS body_snippet,
+           x.human_is_po AS is_po,
+           CASE WHEN (
+             SELECT COUNT(*) FROM emails e2
+             WHERE e2.thread_id = e.thread_id AND e2.received_at < e.received_at
+           ) > 0 THEN 1 ELSE 0 END AS is_thread_reply
+    FROM emails e
+    JOIN extractions x ON x.message_id = e.message_id
+    WHERE x.human_is_po = 1
+    ORDER BY x.human_feedback_at DESC
+    LIMIT ?
+  `).all(half + 1); // +1 to allow uneven split
+
+  const nonPoExamples = getDb().prepare(`
+    SELECT e.subject, e.sender_name, e.sender_email,
+           SUBSTR(e.body_text, 1, 400) AS body_snippet,
+           x.human_is_po AS is_po,
+           CASE WHEN (
+             SELECT COUNT(*) FROM emails e2
+             WHERE e2.thread_id = e.thread_id AND e2.received_at < e.received_at
+           ) > 0 THEN 1 ELSE 0 END AS is_thread_reply
+    FROM emails e
+    JOIN extractions x ON x.message_id = e.message_id
+    WHERE x.human_is_po = 0
+    ORDER BY x.human_feedback_at DESC
+    LIMIT ?
+  `).all(half);
+
+  return [...poExamples, ...nonPoExamples];
+}
+
+/**
+ * Returns sender reputation derived from human feedback.
+ * Only returns senders with at least 2 verified emails (confident pattern).
+ * Used to tell Claude "this sender always / never sends POs".
+ */
+function getSenderReputation() {
+  return getDb().prepare(`
+    SELECT
+      e.sender_email,
+      e.sender_name,
+      COUNT(*)                                        AS total,
+      SUM(CASE WHEN x.human_is_po = 1 THEN 1 ELSE 0 END) AS po_count
+    FROM emails e
+    JOIN extractions x ON x.message_id = e.message_id
+    WHERE x.human_is_po IS NOT NULL
+    GROUP BY e.sender_email
+    HAVING total >= 2
+  `).all();
+}
+
 module.exports = {
   getDb,
   getInboxes,
@@ -200,8 +316,13 @@ module.exports = {
   getEmails,
   getEmail,
   emailExists,
+  getThreadEmails,
   getAttachment,
   upsertAttachment,
   hasExtraction,
   upsertExtraction,
+  saveFeedback,
+  clearExtraction,
+  getFeedbackExamples,
+  getSenderReputation,
 };

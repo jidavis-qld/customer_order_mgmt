@@ -102,6 +102,7 @@ app.post(`${BASE}/api/sync`, async (req, res) => {
           body_text:    bodyText,
           is_read:      message.labelIds?.includes('UNREAD') ? 0 : 1,
           fetched_at:   new Date().toISOString(),
+          thread_id:    message.threadId || null,
         });
         results.new++;
 
@@ -193,6 +194,48 @@ app.get(`${BASE}/api/emails/:id`, (req, res) => {
     res.json({ ...email, extracted_json: undefined, extracted });
   } catch (err) {
     console.error('[GET /emails/:id]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── API: Human feedback (learning) ───────────────────────────────────────────
+
+/**
+ * PATCH /orders/api/emails/:id/feedback
+ * Record whether the team agrees with Claude's classification.
+ * Body: { is_purchase_order: true | false }
+ *
+ * If the team overrides "not a PO" → "is a PO", we clear the extraction cache
+ * so the next sync re-runs Claude (now armed with this example + better few-shot).
+ */
+app.patch(`${BASE}/api/emails/:id/feedback`, (req, res) => {
+  try {
+    const { is_purchase_order } = req.body || {};
+    if (typeof is_purchase_order !== 'boolean') {
+      return res.status(400).json({ error: 'is_purchase_order must be a boolean' });
+    }
+
+    const email = db.getEmail(req.params.id);
+    if (!email) return res.status(404).json({ error: 'Email not found.' });
+    if (!email.extracted_json) return res.status(409).json({ error: 'Email has not been extracted yet.' });
+
+    let claudeIsPo = null;
+    try {
+      claudeIsPo = JSON.parse(email.extracted_json)?.is_purchase_order ?? null;
+    } catch (_) {}
+
+    db.saveFeedback(req.params.id, is_purchase_order);
+
+    // If the human says IS a PO but Claude classified it as NOT a PO,
+    // clear the extraction so the next sync re-extracts with better context.
+    const willReExtract = is_purchase_order === true && claudeIsPo === false;
+    if (willReExtract) {
+      db.clearExtraction(req.params.id);
+    }
+
+    res.json({ ok: true, willReExtract });
+  } catch (err) {
+    console.error('[PATCH /emails/:id/feedback]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

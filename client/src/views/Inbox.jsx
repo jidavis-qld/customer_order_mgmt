@@ -39,6 +39,10 @@ function sourceBadge(src) {
 function statusBadge(row) {
   if (row.extracted?.is_purchase_order === false) return <span style={{ ...s.badge, ...s.notPoBadge }}>Not a PO</span>;
   if (row.has_flags) return <span style={{ ...s.badge, ...s.flagAlert }}>Flagged</span>;
+  // human_is_po: null = unverified, 0 = confirmed not-PO, 1 = confirmed PO
+  if (row.extracted && row.human_is_po !== null && row.human_is_po !== undefined) {
+    return <span style={{ ...s.badge, ...s.statusOk }}>Verified ✓</span>;
+  }
   if (row.extracted) return <span style={{ ...s.badge, ...s.statusOk }}>Extracted</span>;
   return                   <span style={{ ...s.badge, ...s.statusPend }}>Pending</span>;
 }
