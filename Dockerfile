@@ -22,9 +22,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Build tools needed for better-sqlite3 native addon (fallback when prebuilt binary unavailable)
+RUN apk add --no-cache python3 make g++
+
 # Install production server dependencies only
 COPY package*.json ./
 RUN npm ci --omit=dev
+
+# Remove build tools to keep image small
+RUN apk del python3 make g++
 
 # Copy server source
 COPY server/ ./server/
