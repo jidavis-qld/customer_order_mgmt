@@ -7,7 +7,7 @@ import Settings from './views/Settings.jsx';
 
 const BASE = import.meta.env.VITE_BASE_PATH || '/orders';
 
-const styles = {
+const S = {
   layout: {
     display:       'flex',
     flexDirection: 'column',
@@ -22,21 +22,29 @@ const styles = {
     padding:      '0 1.5rem',
     display:      'flex',
     alignItems:   'center',
-    gap:          '2rem',
+    gap:          '0.75rem',
     height:       '52px',
     flexShrink:   0,
   },
 
-  brand: {
-    fontSize:       T.md,
-    fontWeight:     T.bold,
-    color:          C.lime,
+  homeBtn: {
+    fontSize:       T.xs,
+    padding:        '0.2rem 0.6rem',
+    borderRadius:   '4px',
+    border:         '1px solid #3d5a1e',
+    color:          C.sageMid,
     textDecoration: 'none',
-    letterSpacing:  '0.01em',
-    whiteSpace:     'nowrap',
   },
 
-  nav: { display: 'flex', gap: '0.15rem', flex: 1 },
+  sep: { color: '#5e7462' },
+
+  appName: {
+    fontSize:   T.base,
+    fontWeight: T.semibold,
+    color:      C.sageMid,
+  },
+
+  nav: { display: 'flex', gap: '0.15rem', flex: 1, marginLeft: '1rem' },
 
   navLink: {
     padding:        '0.35rem 0.85rem',
@@ -53,33 +61,68 @@ const styles = {
     background: 'rgba(207, 255, 142, 0.12)',
   },
 
+  signOut: {
+    marginLeft:     'auto',
+    fontSize:       T.xs,
+    padding:        '0.2rem 0.6rem',
+    borderRadius:   '4px',
+    border:         '1px solid #3d5a1e',
+    color:          C.sageMid,
+    textDecoration: 'none',
+  },
+
   main: { flex: 1 },
 };
 
 export default function App() {
   return (
     <BrowserRouter basename={BASE}>
-      <div style={styles.layout}>
-        <header style={styles.header}>
-          <NavLink to="/" style={styles.brand}>Fable Food — PO Inbox</NavLink>
-          <nav style={styles.nav}>
+      <div style={S.layout}>
+        <header style={S.header}>
+          <a
+            href="/"
+            style={S.homeBtn}
+            onMouseEnter={e => e.currentTarget.style.color = C.lime}
+            onMouseLeave={e => e.currentTarget.style.color = C.sageMid}
+          >
+            ← Home
+          </a>
+          <span style={S.sep}>|</span>
+          <img
+            src={`${import.meta.env.BASE_URL}FAB_logo_white.png`}
+            alt="Fable"
+            style={{ height: '26px', width: 'auto' }}
+          />
+          <span style={S.sep}>|</span>
+          <span style={S.appName}>PO Inbox</span>
+
+          <nav style={S.nav}>
             <NavLink
               to="/"
               end
-              style={({ isActive }) => ({ ...styles.navLink, ...(isActive ? styles.navLinkActive : {}) })}
+              style={({ isActive }) => ({ ...S.navLink, ...(isActive ? S.navLinkActive : {}) })}
             >
               Inbox
             </NavLink>
             <NavLink
               to="/settings"
-              style={({ isActive }) => ({ ...styles.navLink, ...(isActive ? styles.navLinkActive : {}) })}
+              style={({ isActive }) => ({ ...S.navLink, ...(isActive ? S.navLinkActive : {}) })}
             >
               Settings
             </NavLink>
           </nav>
+
+          <a
+            href="/_gcp_iap/clear_login_cookie"
+            style={S.signOut}
+            onMouseEnter={e => e.currentTarget.style.color = C.lime}
+            onMouseLeave={e => e.currentTarget.style.color = C.sageMid}
+          >
+            Sign out
+          </a>
         </header>
 
-        <main style={styles.main}>
+        <main style={S.main}>
           <Routes>
             <Route path="/"           element={<Inbox />} />
             <Route path="/detail/:id" element={<PODetail />} />
