@@ -4,16 +4,16 @@ steps:
     args:
       - build
       - -t
-      - gcr.io/in-demand-87605/orders-inbox
+      - australia-southeast1-docker.pkg.dev/in-demand-87605/cloud-run-source-deploy/orders-inbox
       - --build-arg
       - VITE_BASE_PATH=/orders
       - .
 
-  # Push to Container Registry
+  # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - push
-      - gcr.io/in-demand-87605/orders-inbox
+      - australia-southeast1-docker.pkg.dev/in-demand-87605/cloud-run-source-deploy/orders-inbox
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -22,7 +22,7 @@ steps:
       - run
       - deploy
       - orders-inbox
-      - --image=gcr.io/in-demand-87605/orders-inbox
+      - --image=australia-southeast1-docker.pkg.dev/in-demand-87605/cloud-run-source-deploy/orders-inbox
       - --region=australia-southeast1
       - --project=in-demand-87605
       - --port=8080
@@ -39,7 +39,7 @@ steps:
       - --add-volume-mount=volume=orders-db,mount-path=/mnt/db
 
 images:
-  - gcr.io/in-demand-87605/orders-inbox
+  - australia-southeast1-docker.pkg.dev/in-demand-87605/cloud-run-source-deploy/orders-inbox
 
 options:
   logging: CLOUD_LOGGING_ONLY
